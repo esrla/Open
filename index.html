@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html>
+ <head>
+   <meta charset="UTF-8" />
+   <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+   <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no"/>
+   <title>stlite app</title>
+   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@stlite/mountable@0.39.0/build/stlite.css"/>
+ </head>
+ <body>
+   <div id="root"></div>
+   <script src="https://cdn.jsdelivr.net/npm/@stlite/mountable@0.39.0/build/stlite.js"></script>
+   <script>
+     stlite.mount(`
+import micropip
+await micropip.install(["matplotlib", "plotly", "statsmodels", "xyzservices", "streamlit_bokeh_events",
+"streamlit-geolocation"])
+
+import streamlit as st
+from datetime import datetime
+from datetime import timedelta
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+from pyodide.http import pyfetch
+from streamlit_geolocation import streamlit_geolocation
+
+location = streamlit_geolocation()
+#st.write(location)
+
+col1, col2 = st.columns(2)
+with col1:
+	lat = st.text_input("Latitude") 
+with col2:
+	lon = st.text_input("Longitude")
+Latitude = lat or "59.9410"
+Longitude = lon or "10.4951"
+
+response = await pyfetch(f"https://nominatim.openstreetmap.org/reverse?lat={Latitude}&lon={Longitude}&format=json&accept-language=en&zoom=17")
+res = await response.json()
+location = res["display_name"]
+st.header(location)
+
+response = await pyfetch(f"https://api.met.no/weatherapi/locationforecast/2.0/complete?lat={Latitude}&lon={Longitude}")
+data = await response.json()
+
+moh = data["geometry"]["coordinates"][2]
+
+startTime = "unset"
+endTime = datetime.now() + timedelta(hours=3)
+col1, col2, col3 = st.columns(3)
+with col1:
+	st.write("")
+	st.write("")
+	st.write("")
+	st.write("MOH: " + str(moh))
+	if st.button("+-3 hours___"): endTime = datetime.now() + timedelta(hours=3)
+	if st.button("+1 day______"): endTime = datetime.now() + timedelta(days=1)
+	if st.button("+2 days_____"): endTime = datetime.now() + timedelta(days=2)
+	if st.button("+3 days_____"): endTime = datetime.now() + timedelta(days=3)
+	if st.button("+4 days_____"): endTime = datetime.now() + timedelta(days=4)
+	if st.button("+5 days_____"): endTime = datetime.now() + timedelta(days=5)
+	if st.button("+6 days_____"): endTime = datetime.now() + timedelta(days=6)
+	if st.button("+7 days_____"): endTime = datetime.now() + timedelta(days=7)
+	if st.button("end of {}___"): endTime = datetime.now() + timedelta(days=99)
+
+lTimes = []
+lTemps = []
+lClouds = []
+lFog = []
+lHumid = []
+lPrecip = []
+lCOP = []
+lCOT = []
+lWind10 = []
+lWind90 = []
+lUV = []
+lDateStrings =[]
+lSunrise =[]
+
+for timeRecord in data["properties"]["timeseries"]:
+	time = datetime.fromisoformat(timeRecord["time"])
+	if time.replace(tzinfo=None) > endTime: break
+	lTimes.append(time)
+	
+	#sunrise api
+	date = time.strftime("%Y-%m-%d")
+	if not date in lDateStrings:
+		response = await pyfetch(f"https://api.met.no/weatherapi/sunrise/3.0/sun?date={date}&lat={Latitude}&lon={Longitude}&offset=%2B01%3A00")
+		sunrisedata = await response.json()
+		lSunrise.append(sunrisedata)
+		lDateStrings.append(date)
+	
+	lTemps.append(timeRecord["data"]["instant"]["details"]["air_temperature"])
+	lClouds.append(timeRecord["data"]["instant"]["details"]["cloud_area_fraction"])
+
+	if "fog_area_fraction" in timeRecord["data"]["instant"]["details"]:
+		lFog.append(timeRecord["data"]["instant"]["details"]["fog_area_fraction"])
+	else: lFog.append(0)
+
+	lHumid.append(timeRecord["data"]["instant"]["details"]["relative_humidity"])
+	lWind10.append(timeRecord["data"]["instant"]["details"]["wind_speed_percentile_10"])
+	lWind90.append(timeRecord["data"]["instant"]["details"]["wind_speed_percentile_90"])
+
+	if "ultraviolet_index_clear_sky" in timeRecord["data"]["instant"]["details"]:
+		lUV.append(timeRecord["data"]["instant"]["details"]["ultraviolet_index_clear_sky"])
+	else: lUV.append(0)
+
+	nextH = timeRecord["data"].get("next_1_hours")
+	if nextH:
+		lPrecip.append(nextH["details"]["precipitation_amount"])
+		lCOP.append(nextH["details"]["probability_of_precipitation"])
+		lCOT.append(nextH["details"]["probability_of_thunder"])
+	else:
+		lPrecip.append(lPrecip[len(lPrecip)-1])
+		lCOP.append(lCOP[len(lCOP)-1])
+		lCOT.append(lCOT[len(lCOT)-1])
+
+
+
+
+
+df = pd.DataFrame(lTimes, columns = ["Time"])
+df["Temp"] = lTemps
+df["CloudCover"] = lClouds
+df["Fog"] = lFog
+df["Humidity"] = lHumid
+df["Precipitation"] = lPrecip
+df["ChanceOfPrecipitation"] = lCOP
+df["ChanceOfThunder"] = lCOT
+df["WindMin"] = lWind10
+df["WindMax"] = lWind90
+df["UV"] = lUV
+#df["SunriseJson"] = lSunrise
+
+
+layout = go.Layout(autosize=True)
+fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+fig.add_trace(go.Scatter(x=df["Time"], y=[0 for x in df["Time"]], showlegend=False), secondary_y=True)
+fig.add_trace(
+	go.Scatter(
+		x=df["Time"], 
+		y=df["CloudCover"],
+		name="CloudCover",
+		fill="tonexty",
+		line=dict(dash='solid', width=3, color = "lightgray")
+		),
+	secondary_y=True)
+fig.add_trace(
+	go.Scatter(
+		x=df["Time"],
+		y=[100 for x in df["CloudCover"]],
+		name="Sun?",
+		fill='tonexty',
+		mode="lines",
+		line_color="yellow",
+		fillgradient=dict(
+			type="vertical",
+			colorscale=[
+				(0.0, "yellow"),
+				(0.5, "white"),
+				(1.0, "yellow")])
+	),secondary_y=True)
+
+
+fig.add_trace(
+	go.Scatter(
+		x=df["Time"], 
+		y=df["Humidity"], 
+		name="Humidity",
+		line=dict(dash='solid', width=3, color = "lightblue")),
+	secondary_y=True)
+
+fig.add_trace(go.Scatter(x=df["Time"], y=[0 for x in df["Time"]], showlegend=False ), secondary_y=True)
+fig.add_trace(
+	go.Scatter(
+		x=df["Time"], 
+		y=df["Fog"],
+		name="Fog",
+		fill='tonexty',
+		line=dict(
+		dash='solid', 
+		width=3, 
+		color = "gray"
+		)
+	),
+	secondary_y=True)
+
+
+fig.add_trace(
+	go.Scatter(
+		x=df["Time"], 
+		y=df["ChanceOfPrecipitation"], 
+		name="ChanceOfPrecipitation",
+		line=dict(dash='dot', width=3, color = "blue")),
+	secondary_y=True)
+fig.add_trace(
+	go.Scatter(
+		x=df["Time"], 
+		y=df["ChanceOfThunder"], 
+		name="ChanceOfThunder",
+		line=dict(dash='solid', width=1, color = "#D5B60A")),
+	secondary_y=True)
+
+#JustTextLegend
+fig.add_trace(go.Scatter(x = df["Time"], y = [0 for x in df["Time"]], name = "<b>Percentages</b>", line=dict(dash = 'solid', width=0, color = "white"), marker = dict(size = 0.1)), secondary_y = True)
+
+
+fig.add_trace(
+	go.Scatter(
+		x=df["Time"], 
+		y=df["UV"],
+		name="UV",
+		line=dict(dash='solid', width=1.5, color = "violet")),
+	secondary_y=False)
+
+
+fig.add_trace(
+	go.Scatter(
+		x=df["Time"], 
+		y=df["WindMin"],
+		name="Wind",
+		showlegend=False,
+		line=dict(dash='solid', width=1, color = "green")),
+	secondary_y=False)
+fig.add_trace(
+	go.Scatter(
+		x=df["Time"], 
+		y=df["WindMax"],
+		fill='tonexty',
+		name="Wind",
+		line=dict(dash='solid', width=1, color = "green")),
+	secondary_y=False)
+
+fig.add_trace(
+	go.Scatter(
+		x=df["Time"], 
+		y=df["Precipitation"], 
+		name="Precipitation",
+		line=dict(dash='dot', width=3, color = "darkblue")), 
+	secondary_y=False)
+
+fig.add_trace(
+	go.Scatter(
+		x=df["Time"], 
+		y=df["Temp"],
+		name="Temp",
+		line=dict(
+			dash='solid', 
+			shape='spline',
+			smoothing=1.3,
+			width=3, 
+			color = "Red")),
+	secondary_y=False)
+
+#JustTextLegend
+#fig.add_trace(go.Scatter(x = df["Time"], y = [0 for x in df["Time"]], name = "<b>Degrees, mm, m/s</b>", line=dict(dash = 'solid', width=0, color = "white"), marker = dict(size = 0.1)), secondary_y = True)
+
+fig.add_trace(go.Scatter(x = df["Time"], y = [0 for x in df["Time"]], name = "<b>Degrees, mm, m/s</b>", line=dict(dash = 'solid', width=0, color = "white"), mode="lines"), secondary_y = True)
+
+
+
+fig.update_xaxes(title_text="<b>Time</b> hour", fixedrange = True)
+fig.update_yaxes(secondary_y=False, fixedrange = True, gridcolor="red")
+fig.update_yaxes(secondary_y=True, fixedrange = True)
+
+fig.add_vline(x=datetime.now(), line_width=3, line_dash="dash", opacity=0.2)
+
+#DAYLIGHT CYCLE
+twighlightTimes = []
+for i in range(len(lSunrise)):
+	day = lSunrise[i]
+	sunrise = datetime.fromisoformat(
+		day["properties"]["sunrise"]["time"])
+	sunset = datetime.fromisoformat(
+			day["properties"]["sunset"]["time"])
+	if i == 0:
+		if sunrise < lTimes[0]:
+			sunrise = lTimes[0]
+		if sunset < lTimes[0]:
+			sunset = lTimes[0]
+	if i == len(lSunrise)-1:
+		if sunrise > lTimes[-1]:
+			sunrise = lTimes[-1]
+		if sunset > lTimes[-1]:
+			sunset = lTimes[-1]
+	twighlightTimes.append(
+	sunrise)
+	twighlightTimes.append(
+		sunset)
+
+matcedTwighligtTimes = []
+twighlightValues = []
+for i in range(len(twighlightTimes)):
+	if i % 2 != 0:
+		twighlightValues.append(
+		0)
+		twighlightValues.append(
+		100)
+	else:
+		twighlightValues.append(
+		100)
+		twighlightValues.append(
+		0)
+	matcedTwighligtTimes.append(
+	twighlightTimes[i])
+	matcedTwighligtTimes.append(
+	twighlightTimes[i]+ timedelta(minutes=1))
+
+fig.add_trace(go.Scatter(x=matcedTwighligtTimes, y=[0 for x in matcedTwighligtTimes], showlegend=False ), secondary_y=True)
+fig.add_trace(
+	go.Scatter(
+		x=matcedTwighligtTimes, 
+		y=twighlightValues,
+		name="Night",
+		mode="lines",
+		fill="tonexty",
+		line=dict(
+			dash='solid', 
+			width=0.5, 
+			color = "Black")
+		),
+	secondary_y=True)
+
+
+fig.update_layout(
+	title_text="Weather",
+	autosize=False,
+	width=500,
+	height=500)
+
+
+
+with col2:
+	st.plotly_chart(fig)
+
+if st.button("dataframe"): 
+	st.dataframe(df)
+if st.button("{JSON}"):
+	st.write(data)
+
+
+
+
+
+
+`,document.getElementById("root"));
+   </script>
+ </body>
+</html>
