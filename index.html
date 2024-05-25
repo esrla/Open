@@ -26,21 +26,32 @@ from plotly.subplots import make_subplots
 from pyodide.http import pyfetch
 from streamlit_geolocation import streamlit_geolocation
 
-location = streamlit_geolocation()
-#st.write(location)
+### LOCATION
 
-col1, col2 = st.columns(2)
-with col1:
-	lat = st.text_input("Latitude") 
-with col2:
-	lon = st.text_input("Longitude")
-Latitude = lat or "59.9410"
-Longitude = lon or "10.4951"
+# Default Verket
+Latitude = "59.9407"
+Longitude = "10.5017"
+		
+locationOptions = st.radio(
+	"Location",
+	["Verket", "IP"],
+	horizontal=True)
+if locationOptions == "Verket":
+	Latitude = "59.9407"
+	Longitude = "10.5017"
+if locationOptions == "IP":
+	ipLocationData = await (await pyfetch(f"http://ip-api.com/json/")).json()
+	Latitude = ipLocationData['lat']
+	Longitude = ipLocationData['lon']
 
-response = await pyfetch(f"https://nominatim.openstreetmap.org/reverse?lat={Latitude}&lon={Longitude}&format=json&accept-language=en&zoom=17")
-res = await response.json()
-location = res["display_name"]
-st.header(location)
+locationData = await (await pyfetch(f"https://nominatim.openstreetmap.org/reverse?lat={Latitude}&lon={Longitude}&format=json&accept-language=en&zoom=17")).json()
+
+locationName = locationData["display_name"].split(",")
+locationName = locationName [:len(locationName)-2][-3:] # remove 2 last and then select 3 last
+locationName = ", ".join(locationName)
+
+
+st.header(locationName)
 
 response = await pyfetch(f"https://api.met.no/weatherapi/locationforecast/2.0/complete?lat={Latitude}&lon={Longitude}")
 data = await response.json()
@@ -49,21 +60,35 @@ moh = data["geometry"]["coordinates"][2]
 
 startTime = "unset"
 endTime = datetime.now() + timedelta(hours=3)
-col1, col2, col3 = st.columns(3)
-with col1:
-	st.write("")
-	st.write("")
-	st.write("")
-	st.write("MOH: " + str(moh))
-	if st.button("+-3 hours___"): endTime = datetime.now() + timedelta(hours=3)
-	if st.button("+1 day______"): endTime = datetime.now() + timedelta(days=1)
-	if st.button("+2 days_____"): endTime = datetime.now() + timedelta(days=2)
-	if st.button("+3 days_____"): endTime = datetime.now() + timedelta(days=3)
-	if st.button("+4 days_____"): endTime = datetime.now() + timedelta(days=4)
-	if st.button("+5 days_____"): endTime = datetime.now() + timedelta(days=5)
-	if st.button("+6 days_____"): endTime = datetime.now() + timedelta(days=6)
-	if st.button("+7 days_____"): endTime = datetime.now() + timedelta(days=7)
-	if st.button("end of {}___"): endTime = datetime.now() + timedelta(days=99)
+
+
+### SELECT WHEN
+when = st.radio(
+	"When",
+	["Now", "End of day", "+1 d", "+2 d", "+3 d", "+4 d", "+5 d", "+6 d", "+7 d", "End of {}"],
+	horizontal=True)
+if when == "Now":
+	endTime = datetime.now() + timedelta(hours=3)
+if when == "End of day":
+	endTime = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+if when == "+1 d":
+	endTime = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=2)
+if when == "+2 d":
+	endTime = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=3)
+if when == "+3 d":
+	endTime = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=4)
+if when == "+4 d":
+	endTime = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=5)
+if when == "+5 d":
+	endTime = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=6)
+if when == "+6 d":
+	endTime = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=7)
+if when == "+7 d":
+	endTime = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=8)
+if when == "End of {}":
+	endTime = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=99)
+
+
 
 lTimes = []
 lTemps = []
@@ -333,8 +358,7 @@ fig.update_layout(
 
 
 
-with col2:
-	st.plotly_chart(fig)
+st.plotly_chart(fig)
 
 if st.button("dataframe"): 
 	st.dataframe(df)
